@@ -35,8 +35,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#define BLOCK_SIZE 4096
-#define BLOCK_SIZE_WORK 8192
+#define BLOCK_SIZE 1024
+#define BLOCK_SIZE_WORK 2048
+#define NUM_THREADS 4
 
 struct bb_state 
 {
@@ -45,5 +46,11 @@ struct bb_state
   char *dir_hdd;
 };
 #define BB_DATA ((struct bb_state *) fuse_get_context()->private_data)
+
+/*struct socket_basket
+{
+  int sfd;
+  bool available;
+};*/
 
 #endif
