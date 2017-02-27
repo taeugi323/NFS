@@ -21,7 +21,6 @@
 #define _XOPEN_SOURCE 500
 
 // maintain bbfs state in here
-#include <stdio.h>
 #include <limits.h>
 #include <ctype.h>
 #include <dirent.h>
@@ -36,11 +35,14 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-struct bb_state {
-    FILE *logfile;
-    char *dir_ssd;
-    char *dir_hdd;  // rootdir : /home/tae~/example/rootdir -> change it to hdd
-                    // ssd : just send to rootdir(hdd) when file size is larger than threshold
+#define BLOCK_SIZE 4096
+#define BLOCK_SIZE_WORK 8192
+
+struct bb_state 
+{
+  FILE *logfile;
+  char *dir_ssd;
+  char *dir_hdd;
 };
 #define BB_DATA ((struct bb_state *) fuse_get_context()->private_data)
 

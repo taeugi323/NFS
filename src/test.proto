@@ -1,10 +1,137 @@
 syntax = "proto2";
-package example;
+package FormatTransfer;
+
+message getattr 
+{
+  optional string path = 1;
+  optional uint32 dev = 2;
+  optional uint32 inode = 3;
+  optional uint32 mode = 4;
+  optional uint32 nlink = 5;
+  optional uint32 uid = 6;
+  optional uint32 gid = 7;
+  optional uint32 devid = 8;  // device ID (special case)
+  optional uint32 size = 9;
+  optional uint32 blksize = 10;
+  optional uint32 nblk = 11;
+  optional uint32 atime = 12;  // last accessed time
+  optional uint32 mtime = 13;  // last modified time
+  optional uint32 ctime = 14;  // last statuc changed time
+  optional int32 ret = 15;
+}
+
+message fgetattr 
+{
+  optional int32 fd = 1;
+  optional uint32 dev = 2;
+  optional uint32 inode = 3;
+  optional uint32 mode = 4;
+  optional uint32 nlink = 5;
+  optional uint32 uid = 6;
+  optional uint32 gid = 7;
+  optional uint32 devid = 8;  // device ID (special case)
+  optional uint32 size = 9;
+  optional uint32 blksize = 10;
+  optional uint32 nblk = 11;
+  optional uint32 atime = 12;  // last accessed time
+  optional uint32 mtime = 13;  // last modified time
+  optional uint32 ctime = 14;  // last statuc changed time
+  optional int32 ret = 15;
+}
+
+////// It can be changed to open (principle is same)
+message opendir 
+{
+  optional string path = 1;
+  optional uint32 fd = 2;
+  optional bool ret = 3;
+}
 
 message readdir 
 {
-  required string path = 1;
-  required uint32 mode = 2;
-  required uint32 numlink = 3;
-  required uint32 size = 4;
+  optional string path = 1;
+  optional string filename = 2;
+  optional bool end = 3;
+  required int32 retentry = 4;
+}
+
+message access 
+{
+  optional string path = 1;
+  optional int32 mask = 2;
+  optional bool ret = 3;
+}
+
+message open
+{
+  optional string path = 1;
+  optional uint32 mode = 2;
+  optional uint32 fd = 3;
+  optional bool ret = 4;
+}
+
+message mknod 
+{
+  optional string path = 1;
+  optional string command = 2;
+  optional uint32 mode = 3;
+  optional uint32 dev = 4;
+  optional int32 ret = 5;
+}
+
+message release
+{
+  optional string path = 1;
+  optional uint32 fd = 2;
+  optional int32 ret = 3;
+}
+
+message read_write 
+{
+  optional uint32 fd = 1;
+  optional bytes buffer = 2;
+  optional uint32 size = 3;
+  optional int32 offset = 4;
+  optional int32 ret = 5;
+}
+
+message unlink
+{
+  optional string path = 1;
+  optional bool ret = 2;
+}
+
+message symlink
+{
+  optional string path = 1;
+  optional string linkpath = 2;
+  optional bool ret = 3;
+}
+
+message truncate 
+{
+  optional string path = 1;
+  optional int32 size = 2;
+  optional bool ret = 3;
+}
+
+message fsync
+{
+  optional uint32 fd = 1;
+  optional bool ret = 2;
+}
+
+message chmod 
+{
+  optional string path = 1;
+  optional uint32 mode = 2;
+  optional bool ret = 3;
+}
+
+message readlink 
+{
+  optional string path = 1;
+  optional string linkpath = 2;
+  optional uint32 size = 3;
+  optional int32 ret = 4;
 }

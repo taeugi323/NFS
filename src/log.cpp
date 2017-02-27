@@ -27,70 +27,69 @@
 
 FILE *log_open()
 {
-    FILE *logfile;
+  FILE *logfile;
+  // very first thing, open up the logfile and mark that we got in
+  // here.  If we can't open the logfile, we're dead.
+  logfile = fopen("bbfs.log", "w");
+  if (logfile == NULL) {
+    perror("logfile");
+    exit(EXIT_FAILURE);
+  }
     
-    // very first thing, open up the logfile and mark that we got in
-    // here.  If we can't open the logfile, we're dead.
-    logfile = fopen("bbfs.log", "w");
-    if (logfile == NULL) {
-	perror("logfile");
-	exit(EXIT_FAILURE);
-    }
-    
-    // set logfile to line buffering
-    setvbuf(logfile, NULL, _IOLBF, 0);
+  // set logfile to line buffering
+  setvbuf(logfile, NULL, _IOLBF, 0);
 
-    return logfile;
+  return logfile;
 }
 
 void log_msg(const char *format, ...)
 {
-    va_list ap;
-    va_start(ap, format);
+  va_list ap;
+  va_start(ap, format);
 
-    vfprintf(BB_DATA->logfile, format, ap);
+  vfprintf(BB_DATA->logfile, format, ap);
 }
 
 // Report errors to logfile and give -errno to caller
 int log_error(char *func)
 {
-    int ret = -errno;
-    
-    log_msg("    ERROR %s: %s\n", func, strerror(errno));
-    
-    return ret;
+  int ret = -errno;
+  
+  log_msg("    ERROR %s: %s\n", func, strerror(errno));
+  
+  return ret;
 }
 
 // fuse context
 void log_fuse_context(struct fuse_context *context)
 {
-    log_msg("    context:\n");
-    
-    /** Pointer to the fuse object */
-    //	struct fuse *fuse;
-    log_struct(context, fuse, %08x, );
+  log_msg("    context:\n");
+  
+  /** Pointer to the fuse object */
+  //	struct fuse *fuse;
+  log_struct(context, fuse, %08x, );
 
-    /** User ID of the calling process */
-    //	uid_t uid;
-    log_struct(context, uid, %d, );
+  /** User ID of the calling process */
+  //	uid_t uid;
+  log_struct(context, uid, %d, );
 
-    /** Group ID of the calling process */
-    //	gid_t gid;
-    log_struct(context, gid, %d, );
+  /** Group ID of the calling process */
+  //	gid_t gid;
+  log_struct(context, gid, %d, );
 
-    /** Thread ID of the calling process */
-    //	pid_t pid;
-    log_struct(context, pid, %d, );
+  /** Thread ID of the calling process */
+  //	pid_t pid;
+  log_struct(context, pid, %d, );
 
-    /** Private filesystem data */
-    //	void *private_data;
-    log_struct(context, private_data, %08x, );
-    log_struct(((struct bb_state *)context->private_data), logfile, %08x, );
-    log_struct(((struct bb_state *)context->private_data), dir_ssd, %s, );
-	
-    /** Umask of the calling process (introduced in version 2.8) */
-    //	mode_t umask;
-    log_struct(context, umask, %05o, );
+  /** Private filesystem data */
+  //	void *private_data;
+  log_struct(context, private_data, %08x, );
+  log_struct(((struct bb_state *)context->private_data), logfile, %08x, );
+  log_struct(((struct bb_state *)context->private_data), dir_ssd, %s, );
+
+  /** Umask of the calling process (introduced in version 2.8) */
+  //	mode_t umask;
+  log_struct(context, umask, %05o, );
 }
 
 // struct fuse_conn_info contains information about the socket
@@ -186,23 +185,23 @@ void log_fi (struct fuse_file_info *fi)
 
 void log_retstat(char *func, int retstat)
 {
-    int errsave = errno;
-    log_msg("    %s returned %d\n", func, retstat);
-    errno = errsave;
+  int errsave = errno;
+  log_msg("    %s returned %d\n", func, retstat);
+  errno = errsave;
 }
       
 // make a system call, checking (and reporting) return status and
 // possibly logging error
 int log_syscall(char *func, int retstat, int min_ret)
 {
-    log_retstat(func, retstat);
+  log_retstat(func, retstat);
 
-    if (retstat < min_ret) {
-	log_error(func);
-	retstat = -errno;
-    }
+  if (retstat < min_ret) {
+    log_error(func);
+    retstat = -errno;
+  }
 
-    return retstat;
+  return retstat;
 }
 
 // This dumps the info from a struct stat.  The struct is defined in
