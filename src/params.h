@@ -47,10 +47,10 @@ struct bb_state
 };
 #define BB_DATA ((struct bb_state *) fuse_get_context()->private_data)
 
-/*struct socket_basket
+struct socket_basket
 {
   int sfd;
   bool available;
-};*/
+};
 
 #endif

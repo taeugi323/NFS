@@ -20,8 +20,30 @@ using namespace std;
 
 //static int sockfd;
 
+struct socket_basket sckbsk[NUM_THREADS];
 pthread_mutex_t mutex_sock;
 static fuse_operations bb_oper;
+
+int find_available_socket ()
+{
+  for (int i=0; i < NUM_THREADS; i++) {
+    if (sckbsk[i].available) {
+      sckbsk[i].available = false;
+      return sckbsk[i].sfd;
+    }
+  }
+  return -1;
+}
+
+void mark_used_socket (int sfd) 
+{
+  for (int i=0; i < NUM_THREADS; i++) {
+    if (sfd == sckbsk[i].sfd) {
+      sckbsk[i].available = true;
+      return ;
+    }
+  }
+}
 
 //  All the paths I see are relative to the root of the mounted
 //  filesystem.  In order to get to the underlying filesystem, I need to
@@ -32,7 +54,7 @@ static void bb_fullpath(char fpath[PATH_MAX], const char *path)
 {
   strcpy(fpath, BB_DATA->dir_ssd);
   strncat(fpath, path, PATH_MAX); // ridiculously long paths will
-  ////log_msg("    bb_fullpath:  rootdir = \"%s\", path = \"%s\", fpath = \"%s\"\n", BB_DATA->rootdir, path, fpath);
+  //log_msg("    bb_fullpath:  rootdir = \"%s\", path = \"%s\", fpath = \"%s\"\n", BB_DATA->rootdir, path, fpath);
 }
 
 ///////////////////////////////////////////////////////////
@@ -53,39 +75,29 @@ int bb_getattr(const char *path, struct stat *statbuf)
   int sockfd;
   //int i;
 
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::getattr obj_send, obj_recv;
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+
+  //cout << "[getattr] sfd : " << sockfd << endl;
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Getattr : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Getattr : can’t connect to server \n");
     return -1;
-  }
-  /*i = 0;
-  while (1) {
-    printf("First time here - %d, %d, self : %d\n", sckbsk[i].sfd, sckbsk[i].available, pthread_self());
-    if (sckbsk[i].available) {
-      pthread_mutex_lock(&temp);
-      sockfd = sckbsk[i].sfd;
-      sckbsk[i].available = false;
-      pthread_mutex_unlock(&temp);
-      break;
-    }
-    i = (i+1)%NUM_THREADS;
   }*/
 
-  //pthread_mutex_lock(&mutex_sock);
   /////// Send getattr request to server.
   if (::write(sockfd, "getattr", 7) < 7) {
     printf("Getattr : [Request] error\n");
@@ -148,13 +160,14 @@ int bb_getattr(const char *path, struct stat *statbuf)
   //else
   //  retstat = -1;
   
-  //log_msg("\nbb_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
+  log_msg("\nbb_getattr(path=\"%s\", statbuf=0x%08x)\n", path, statbuf);
     
   //printf("[getattr] %s's size is : %d\n", path, statbuf->st_size);
   //log_stat(statbuf);
 
-  ::close(sockfd);
-  //sckbsk[i].available = true;
+  //::close(sockfd);
+  //
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   return retstat;
 }
@@ -177,27 +190,27 @@ int bb_readlink(const char *path, char *link, size_t size)
   char fpath[PATH_MAX];
 
   int sockfd;
-  struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::readlink obj_send, obj_recv;
 
-  //log_msg("bb_readlink(path=\"%s\", link=\"%s\", size=%d)\n", path, link, size);
+  log_msg("bb_readlink(path=\"%s\", link=\"%s\", size=%d)\n", path, link, size);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Readlink : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Readlink : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send readlink request to server.
   if (::write(sockfd, "readlink", 8) < 8) {
@@ -235,7 +248,8 @@ int bb_readlink(const char *path, char *link, size_t size)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   ////// Parse the FormatTransfer::getattr object to stat structure
   str_recv = recv_buf;
@@ -249,7 +263,7 @@ int bb_readlink(const char *path, char *link, size_t size)
 
   return retstat;
   /*
-  //log_msg("bb_readlink(path=\"%s\", link=\"%s\", size=%d)\n", path, link, size);
+  log_msg("bb_readlink(path=\"%s\", link=\"%s\", size=%d)\n", path, link, size);
   bb_fullpath(fpath, path);
 
   retstat = log_syscall("fpath", readlink(fpath, link, size - 1), 0);
@@ -274,7 +288,7 @@ int bb_mknod(const char *path, mode_t mode, dev_t dev)
   char fpath[PATH_MAX];
     
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::mknod obj_send, obj_recv;
@@ -282,22 +296,23 @@ int bb_mknod(const char *path, mode_t mode, dev_t dev)
   //printf("[mknod] here\n");
   //printf("mode : %d, %u\n", sizeof(mode), mode);
   //fprintf(stdout, "%s", mode);
-  //log_msg("\nbb_mknod(path=\"%s\", mode=0%3o, dev=%lld)\n", path, mode, dev);
+  log_msg("\nbb_mknod(path=\"%s\", mode=0%3o, dev=%lld)\n", path, mode, dev);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Mknod : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Mknod : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send mknod request to server.
   if (::write(sockfd, "mknod1", 6) < 6) {
@@ -378,12 +393,13 @@ int bb_mknod(const char *path, mode_t mode, dev_t dev)
     }
 
   }
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
-  ::close(sockfd);
+  //::close(sockfd);
   return retstat;
 
   /*
-  //log_msg("\nbb_mknod(path=\"%s\", mode=0%3o, dev=%lld)\n", path, mode, dev);
+  log_msg("\nbb_mknod(path=\"%s\", mode=0%3o, dev=%lld)\n", path, mode, dev);
   bb_fullpath(fpath, path);
     
   // On Linux this could just be 'mknod(path, mode, dev)' but this
@@ -412,7 +428,7 @@ int bb_mkdir(const char *path, mode_t mode)
 {
     char fpath[PATH_MAX];
     
-    //log_msg("\nbb_mkdir(path=\"%s\", mode=0%3o)\n", path, mode);
+    log_msg("\nbb_mkdir(path=\"%s\", mode=0%3o)\n", path, mode);
     bb_fullpath(fpath, path);
 
     return log_syscall("mkdir", mkdir(fpath, mode), 0);
@@ -424,25 +440,26 @@ int bb_unlink(const char *path)
   char fpath[PATH_MAX];
   
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::unlink obj_send, obj_recv;
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Unlink : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Unlink : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send open request to server.
   if (::write(sockfd, "unlink", 6) < 6) {
@@ -478,7 +495,8 @@ int bb_unlink(const char *path)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   
   str_recv = recv_buf;
@@ -491,7 +509,7 @@ int bb_unlink(const char *path)
     return -1;
   }
   /*
-  //log_msg("bb_unlink(path=\"%s\")\n", path);
+  log_msg("bb_unlink(path=\"%s\")\n", path);
   bb_fullpath(fpath, path);
 
   return log_syscall("unlink", unlink(fpath), 0);
@@ -503,7 +521,7 @@ int bb_rmdir(const char *path)
 {
     char fpath[PATH_MAX];
     
-    //log_msg("bb_rmdir(path=\"%s\")\n", path);
+    log_msg("bb_rmdir(path=\"%s\")\n", path);
     bb_fullpath(fpath, path);
 
     return log_syscall("rmdir", rmdir(fpath), 0);
@@ -519,27 +537,28 @@ int bb_symlink(const char *path, const char *link)
   char flink[PATH_MAX];
     
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::symlink obj_send, obj_recv;
 
-  //log_msg("\nbb_symlink(path=\"%s\", link=\"%s\")\n", path, link);
+  log_msg("\nbb_symlink(path=\"%s\", link=\"%s\")\n", path, link);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Symlink : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Symlink : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send symlink request to server.
   if (::write(sockfd, "symlink", 7) < 7) {
@@ -576,7 +595,8 @@ int bb_symlink(const char *path, const char *link)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   
   str_recv = recv_buf;
@@ -603,7 +623,7 @@ int bb_rename(const char *path, const char *newpath)
     char fpath[PATH_MAX];
     char fnewpath[PATH_MAX];
     
-    //log_msg("\nbb_rename(fpath=\"%s\", newpath=\"%s\")\n", path, newpath);
+    log_msg("\nbb_rename(fpath=\"%s\", newpath=\"%s\")\n", path, newpath);
     bb_fullpath(fpath, path);
     bb_fullpath(fnewpath, newpath);
 
@@ -615,7 +635,7 @@ int bb_link(const char *path, const char *newpath)
 {
     char fpath[PATH_MAX], fnewpath[PATH_MAX];
     
-    //log_msg("\nbb_link(path=\"%s\", newpath=\"%s\")\n", path, newpath);
+    log_msg("\nbb_link(path=\"%s\", newpath=\"%s\")\n", path, newpath);
     bb_fullpath(fpath, path);
     bb_fullpath(fnewpath, newpath);
 
@@ -628,27 +648,28 @@ int bb_chmod(const char *path, mode_t mode)
   char fpath[PATH_MAX];
   
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::chmod obj_send, obj_recv;
 
-  //log_msg("\nbb_chmod(fpath=\"%s\", mode=0%03o)\n", path, mode);
+  log_msg("\nbb_chmod(fpath=\"%s\", mode=0%03o)\n", path, mode);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Chmod : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Chmod : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send chmod request to server.
   if (::write(sockfd, "chmod", 5) < 5) {
@@ -685,7 +706,8 @@ int bb_chmod(const char *path, mode_t mode)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   
   str_recv = recv_buf;
@@ -699,7 +721,7 @@ int bb_chmod(const char *path, mode_t mode)
   }
 
   /*
-  //log_msg("\nbb_chmod(fpath=\"%s\", mode=0%03o)\n", path, mode);
+  log_msg("\nbb_chmod(fpath=\"%s\", mode=0%03o)\n", path, mode);
   bb_fullpath(fpath, path);
 
   return log_syscall("chmod", chmod(fpath, mode), 0);
@@ -712,7 +734,7 @@ int bb_chown(const char *path, uid_t uid, gid_t gid)
 {
     char fpath[PATH_MAX];
     
-    //log_msg("\nbb_chown(path=\"%s\", uid=%d, gid=%d)\n", path, uid, gid);
+    log_msg("\nbb_chown(path=\"%s\", uid=%d, gid=%d)\n", path, uid, gid);
     bb_fullpath(fpath, path);
 
     return log_syscall("chown", chown(fpath, uid, gid), 0);
@@ -724,28 +746,29 @@ int bb_truncate(const char *path, off_t newsize)
   char fpath[PATH_MAX];
 
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::truncate obj_send, obj_recv;
 
-  //log_msg("\nbb_truncate(path=\"%s\", newsize=%lld)\n", path, newsize);
+  log_msg("\nbb_truncate(path=\"%s\", newsize=%lld)\n", path, newsize);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Truncate : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Truncate : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send truncate request to server.
   if (::write(sockfd, "truncate", 8) < 8) {
@@ -783,7 +806,8 @@ int bb_truncate(const char *path, off_t newsize)
   }
 
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   
   str_recv = recv_buf;
@@ -797,7 +821,7 @@ int bb_truncate(const char *path, off_t newsize)
   }
 
   /*
-  //log_msg("\nbb_truncate(path=\"%s\", newsize=%lld)\n", path, newsize);
+  log_msg("\nbb_truncate(path=\"%s\", newsize=%lld)\n", path, newsize);
   bb_fullpath(fpath, path);
 
   return log_syscall("truncate", truncate(fpath, newsize), 0);
@@ -810,7 +834,7 @@ int bb_utime(const char *path, struct utimbuf *ubuf)
 {
     char fpath[PATH_MAX];
     
-    //log_msg("\nbb_utime(path=\"%s\", ubuf=0x%08x)\n", path, ubuf);
+    log_msg("\nbb_utime(path=\"%s\", ubuf=0x%08x)\n", path, ubuf);
     bb_fullpath(fpath, path);
 
     return log_syscall("utime", utime(fpath, ubuf), 0);
@@ -833,28 +857,29 @@ int bb_open(const char *path, struct fuse_file_info *fi)
   char fpath[PATH_MAX];
     
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::open obj_send, obj_recv;
 
-  //log_msg("\nbb_open(path\"%s\", fi=0x%08x)\n", path, fi);
+  log_msg("\nbb_open(path\"%s\", fi=0x%08x)\n", path, fi);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Open : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Open : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send open request to server.
   if (::write(sockfd, "open", 4) < 4) {
@@ -891,7 +916,8 @@ int bb_open(const char *path, struct fuse_file_info *fi)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   
   pthread_mutex_unlock(&mutex_sock);
 
@@ -913,7 +939,7 @@ int bb_open(const char *path, struct fuse_file_info *fi)
 
 
   /*
-  //log_msg("\nbb_open(path\"%s\", fi=0x%08x)\n", path, fi);
+  log_msg("\nbb_open(path\"%s\", fi=0x%08x)\n", path, fi);
   bb_fullpath(fpath, path);
 
   // if the open call succeeds, my retstat is the file descriptor,
@@ -952,7 +978,7 @@ int bb_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
   int retstat = 0;
   
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE_WORK] = {0,};
   string str_send, str_recv;
   FormatTransfer::read_write obj_send, obj_recv;
@@ -960,23 +986,24 @@ int bb_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
   off_t offset_work;
   //int summ = 0;
 
-  //log_msg("\nbb_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
+  log_msg("\nbb_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
   //log_fi(fi);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Read : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Read : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /*cout << "[read 1] size : " << size;
   cout << ", offset : " << offset << ", sockfd : " << sockfd << endl;*/
@@ -1001,7 +1028,7 @@ int bb_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
 
   ::memset(recv_buf, 0, BLOCK_SIZE_WORK);
 
-  ////// Send the path to open
+  ////// Send the fd to read
   obj_send.set_fd(fi->fh);
   obj_send.set_size(size);
   obj_send.set_offset(offset);
@@ -1023,11 +1050,11 @@ int bb_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
     str_recv = recv_buf;
     //cout << "In Read1, length : " << str_recv.length() << endl;
     obj_recv.ParseFromString(str_recv);
-    /*cout << "In Read, buf : " << endl << obj_recv.buffer() << endl;
-    cout << "And In Read, ret : " << obj_recv.ret();
+    /*cout << "In Read, buf : " << endl << obj_recv.buffer() << endl;*/
+    /*cout << "In Read, ret : " << obj_recv.ret();
     cout << ", tid : " << pthread_self() << endl;*/
 
-    ::memcpy(buf + offset_work, obj_recv.buffer().c_str(), BLOCK_SIZE);
+    ::memcpy(buf + offset_work, obj_recv.buffer().c_str(), obj_recv.ret());
     size_work -= BLOCK_SIZE;
     offset_work += BLOCK_SIZE;
 
@@ -1036,7 +1063,7 @@ int bb_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
     ::write(sockfd, "ACK", 3);
     ::memset (recv_buf, 0, BLOCK_SIZE_WORK);
   }
-
+  ::read(sockfd, recv_buf, 3);
   //cout << "[read final] retstat is " << retstat << endl;
   //cout << "and buf is : " << buf << endl;
   /*for (int i=0;i<size;i++) {
@@ -1045,7 +1072,8 @@ int bb_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
       summ ++;
   }*/
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
 
   //cout << "sum is " << summ << endl;
@@ -1053,7 +1081,7 @@ int bb_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
   return retstat;
 
   /*
-  //log_msg("\nbb_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
+  log_msg("\nbb_read(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
   // no need to get fpath on this one, since I work from fi->fh not the path
   //log_fi(fi);
 
@@ -1077,7 +1105,7 @@ int bb_write(const char *path, const char *buf, size_t size, off_t offset,
   int retstat = 0;
 
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE_WORK] = {0,}, wrt_buf[BLOCK_SIZE_WORK];
   string str_send, str_recv;
   FormatTransfer::read_write obj_send, obj_recv;
@@ -1086,24 +1114,25 @@ int bb_write(const char *path, const char *buf, size_t size, off_t offset,
 
   /*for (int i=0;i<size;i++)
     printf("%c",buf[i]);*/
-  //log_msg("\nbb_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
+  log_msg("\nbb_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
   //log_fi(fi);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Write : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Write : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /*cout << "[write 1] size : " << size;
   cout << ", offset : " << offset << ", sockfd : " << sockfd << endl;*/
@@ -1132,16 +1161,23 @@ int bb_write(const char *path, const char *buf, size_t size, off_t offset,
 
   ///////// Repaired because of server's socket size limitation...
   size_work = size;
-  offset_work = offset;
+  offset_work = 0;
 
   while (size_work > 0) {
     
-    ::memcpy(wrt_buf, buf, BLOCK_SIZE);
+    if (size_work >= BLOCK_SIZE) {
+      ::memcpy(wrt_buf, buf + offset_work, BLOCK_SIZE);
+      obj_send.set_size(BLOCK_SIZE);
+    }
+    else {
+      ::memcpy(wrt_buf, buf + offset_work, size_work);
+      obj_send.set_size(size_work);
+    }
 
     obj_send.set_fd(fi->fh);
     obj_send.set_buffer(wrt_buf);
-    obj_send.set_size(BLOCK_SIZE);
-    obj_send.set_offset(offset_work);
+    //obj_send.set_size(BLOCK_SIZE);
+    obj_send.set_offset(offset + offset_work);
 
     obj_send.SerializeToString(&str_send);
   //cout << "Here, size of string :" << str_send.length() << endl;
@@ -1168,7 +1204,9 @@ int bb_write(const char *path, const char *buf, size_t size, off_t offset,
   obj_send.SerializeToString(&str_send);
   ::write(sockfd, str_send.c_str(), str_send.length());
 
-  ::close(sockfd);
+  ::read(sockfd, recv_buf, 3);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   
   /*
@@ -1183,7 +1221,7 @@ int bb_write(const char *path, const char *buf, size_t size, off_t offset,
   return retstat;
   
   /*
-  //log_msg("\nbb_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
+  log_msg("\nbb_write(path=\"%s\", buf=0x%08x, size=%d, offset=%lld, fi=0x%08x)\n", path, buf, size, offset, fi);
   // no need to get fpath on this one, since I work from fi->fh not the path
   //log_fi(fi);
 
@@ -1203,7 +1241,7 @@ int bb_statfs(const char *path, struct statvfs *statv)
     int retstat = 0;
     char fpath[PATH_MAX];
     
-    //log_msg("\nbb_statfs(path=\"%s\", statv=0x%08x)\n", path, statv);
+    log_msg("\nbb_statfs(path=\"%s\", statv=0x%08x)\n", path, statv);
     bb_fullpath(fpath, path);
     
     // get stats for underlying filesystem
@@ -1240,7 +1278,7 @@ int bb_statfs(const char *path, struct statvfs *statv)
 // this is a no-op in BBFS.  It just logs the call and returns success
 int bb_flush(const char *path, struct fuse_file_info *fi)
 {
-    //log_msg("\nbb_flush(path=\"%s\", fi=0x%08x)\n", path, fi);
+    log_msg("\nbb_flush(path=\"%s\", fi=0x%08x)\n", path, fi);
     // no need to get fpath on this one, since I work from fi->fh not the path
     //log_fi(fi);
 	
@@ -1263,33 +1301,34 @@ int bb_flush(const char *path, struct fuse_file_info *fi)
  */
 int bb_release(const char *path, struct fuse_file_info *fi)
 {
-  //log_msg("\nbb_release(path=\"%s\", fi=0x%08x)\n", path, fi);
+  log_msg("\nbb_release(path=\"%s\", fi=0x%08x)\n", path, fi);
   //log_fi(fi);
 
   // We need to close the file.  Had we allocated any resources
   // (buffers etc) we'd need to free them here as well.
 
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::release obj_send, obj_recv;
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Release : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Release : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send release request to server.
   if (::write(sockfd, "release", 7) < 7) {
@@ -1327,7 +1366,8 @@ int bb_release(const char *path, struct fuse_file_info *fi)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   
   str_recv = recv_buf;
@@ -1348,12 +1388,12 @@ int bb_release(const char *path, struct fuse_file_info *fi)
 int bb_fsync(const char *path, int datasync, struct fuse_file_info *fi)
 {
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::fsync obj_send, obj_recv;
 
-  //log_msg("\nbb_fsync(path=\"%s\", datasync=%d, fi=0x%08x)\n", path, datasync, fi);
+  log_msg("\nbb_fsync(path=\"%s\", datasync=%d, fi=0x%08x)\n", path, datasync, fi);
   //log_fi(fi);
 
 #ifdef HAVE_FDATASYNC
@@ -1361,21 +1401,22 @@ int bb_fsync(const char *path, int datasync, struct fuse_file_info *fi)
     return log_syscall("fdatasync", fdatasync(fi->fh), 0);
 #endif	
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Fsync : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Fsync : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send fsync request to server.
   if (::write(sockfd, "fsync", 5) < 5) {
@@ -1411,7 +1452,8 @@ int bb_fsync(const char *path, int datasync, struct fuse_file_info *fi)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   
   str_recv = recv_buf;
@@ -1425,7 +1467,7 @@ int bb_fsync(const char *path, int datasync, struct fuse_file_info *fi)
   }
 
   /*
-  //log_msg("\nbb_fsync(path=\"%s\", datasync=%d, fi=0x%08x)\n", path, datasync, fi);
+  log_msg("\nbb_fsync(path=\"%s\", datasync=%d, fi=0x%08x)\n", path, datasync, fi);
   //log_fi(fi);
     
     // some unix-like systems (notably freebsd) don't have a datasync call
@@ -1444,7 +1486,7 @@ int bb_setxattr(const char *path, const char *name, const char *value, size_t si
 {
     char fpath[PATH_MAX];
     
-    //log_msg("\nbb_setxattr(path=\"%s\", name=\"%s\", value=\"%s\", size=%d, flags=0x%08x)\n", path, name, value, size, flags);
+    log_msg("\nbb_setxattr(path=\"%s\", name=\"%s\", value=\"%s\", size=%d, flags=0x%08x)\n", path, name, value, size, flags);
     bb_fullpath(fpath, path);
 
     return log_syscall("lsetxattr", lsetxattr(fpath, name, value, size, flags), 0);
@@ -1456,12 +1498,12 @@ int bb_getxattr(const char *path, const char *name, char *value, size_t size)
     int retstat = 0;
     char fpath[PATH_MAX];
     
-    //log_msg("\nbb_getxattr(path = \"%s\", name = \"%s\", value = 0x%08x, size = %d)\n", path, name, value, size);
+    log_msg("\nbb_getxattr(path = \"%s\", name = \"%s\", value = 0x%08x, size = %d)\n", path, name, value, size);
     bb_fullpath(fpath, path);
 
     retstat = log_syscall("lgetxattr", lgetxattr(fpath, name, value, size), 0);
     if (retstat >= 0)
-	//log_msg("    value = \"%s\"\n", value);
+	log_msg("    value = \"%s\"\n", value);
     
     return retstat;
 }
@@ -1473,14 +1515,14 @@ int bb_listxattr(const char *path, char *list, size_t size)
     char fpath[PATH_MAX];
     char *ptr;
     
-    //log_msg("bb_listxattr(path=\"%s\", list=0x%08x, size=%d)\n", path, list, size);
+    log_msg("bb_listxattr(path=\"%s\", list=0x%08x, size=%d)\n", path, list, size);
     bb_fullpath(fpath, path);
 
     retstat = log_syscall("llistxattr", llistxattr(fpath, list, size), 0);
     if (retstat >= 0) {
-	//log_msg("    returned attributes (length %d):\n", retstat);
+	log_msg("    returned attributes (length %d):\n", retstat);
 	for (ptr = list; ptr < list + retstat; ptr += strlen(ptr)+1)
-	    //log_msg("    \"%s\"\n", ptr);
+	    log_msg("    \"%s\"\n", ptr);
     }
     
     return retstat;
@@ -1491,7 +1533,7 @@ int bb_removexattr(const char *path, const char *name)
 {
     char fpath[PATH_MAX];
     
-    //log_msg("\nbb_removexattr(path=\"%s\", name=\"%s\")\n", path, name);
+    log_msg("\nbb_removexattr(path=\"%s\", name=\"%s\")\n", path, name);
     bb_fullpath(fpath, path);
 
     return log_syscall("lremovexattr", lremovexattr(fpath, name), 0);
@@ -1512,27 +1554,28 @@ int bb_opendir(const char *path, struct fuse_file_info *fi)
   char fpath[PATH_MAX];
   //int i;
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::opendir obj_send, obj_recv;
 
-  //log_msg("\nbb_opendir(path=\"%s\", fi=0x%08x)\n", path, fi);
+  log_msg("\nbb_opendir(path=\"%s\", fi=0x%08x)\n", path, fi);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Opendir : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Opendir : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /*i = 0;
   while (1) {
@@ -1579,14 +1622,15 @@ int bb_opendir(const char *path, struct fuse_file_info *fi)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   //sckbsk[i].available = true;
   pthread_mutex_unlock(&mutex_sock);
   
   str_recv = recv_buf;
   obj_recv.ParseFromString(str_recv);
 
-  //log_msg("    opendir returned 0x%p\n", obj_recv.fd());
+  log_msg("    opendir returned 0x%p\n", obj_recv.fd());
 
   if (obj_recv.ret()) {
     fi->fh = (intptr_t) obj_recv.fd();
@@ -1643,28 +1687,29 @@ int bb_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
 
   int sockfd;
   //int i;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::readdir obj_send, obj_recv;
 
-  //log_msg("\nbb_readdir(path=\"%s\", buf=0x%08x, filler=0x%08x, offset=%lld, fi=0x%08x)\n", path, buf, filler, offset, fi);
+  log_msg("\nbb_readdir(path=\"%s\", buf=0x%08x, filler=0x%08x, offset=%lld, fi=0x%08x)\n", path, buf, filler, offset, fi);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Readdir : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Readdir : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /*i = 0;
   while (1) {
@@ -1723,7 +1768,7 @@ int bb_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
 
     if (!obj_recv.end()) {
       
-      //log_msg("calling filler with name %s\n", obj_recv.filename().c_str());
+      log_msg("calling filler with name %s\n", obj_recv.filename().c_str());
       if (filler (buf, obj_recv.filename().c_str(), NULL, 0) != 0) {
         return -ENOMEM;
       }
@@ -1741,7 +1786,8 @@ int bb_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
 
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   //sckbsk[i].available = true;
 
@@ -1759,7 +1805,7 @@ int bb_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
   // error; near as I can tell, that's the only condition under
   // which I can get an error from readdir()
   de = readdir(dp);
-  //log_msg("    readdir returned 0x%p\n", de);
+  log_msg("    readdir returned 0x%p\n", de);
   if (de == 0) {
 	  retstat = log_error("bb_readdir readdir");
 	  return retstat;
@@ -1770,9 +1816,9 @@ int bb_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset
   // returns something non-zero.  The first case just means I've
   // read the whole directory; the second means the buffer is full.
   do {
-    //log_msg("calling filler with name %s\n", de->d_name);
+    log_msg("calling filler with name %s\n", de->d_name);
     if (filler(buf, de->d_name, NULL, 0) != 0) {
-    //log_msg("    ERROR bb_readdir filler:  buffer full");
+    log_msg("    ERROR bb_readdir filler:  buffer full");
       return -ENOMEM;
     }
   } while ((de = readdir(dp)) != NULL);
@@ -1791,29 +1837,30 @@ int bb_releasedir(const char *path, struct fuse_file_info *fi)
 
   int sockfd;
   //int i;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::release obj_send, obj_recv;
 
-  //log_msg("\nbb_releasedir(path=\"%s\", fi=0x%08x)\n", path, fi);
+  log_msg("\nbb_releasedir(path=\"%s\", fi=0x%08x)\n", path, fi);
   //log_fi(fi);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Releasedir : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Releasedir : can’t connect to server \n");
     return -1;
-  }
+  }*/
   /*i = 0;
   while (1) {
     if (sckbsk[i].available) {
@@ -1862,7 +1909,8 @@ int bb_releasedir(const char *path, struct fuse_file_info *fi)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   pthread_mutex_unlock(&mutex_sock);
   //sckbsk[i].available = true;
 
@@ -1874,7 +1922,7 @@ int bb_releasedir(const char *path, struct fuse_file_info *fi)
   return obj_recv.ret();
 
   /*
-  //log_msg("\nbb_releasedir(path=\"%s\", fi=0x%08x)\n", path, fi);
+  log_msg("\nbb_releasedir(path=\"%s\", fi=0x%08x)\n", path, fi);
   //log_fi(fi);
     
   closedir((DIR *) (uintptr_t) fi->fh);
@@ -1896,7 +1944,7 @@ int bb_fsyncdir(const char *path, int datasync, struct fuse_file_info *fi)
 {
     int retstat = 0;
     
-    //log_msg("\nbb_fsyncdir(path=\"%s\", datasync=%d, fi=0x%08x)\n", path, datasync, fi);
+    log_msg("\nbb_fsyncdir(path=\"%s\", datasync=%d, fi=0x%08x)\n", path, datasync, fi);
     //log_fi(fi);
     
     return retstat;
@@ -1921,10 +1969,35 @@ int bb_fsyncdir(const char *path, int datasync, struct fuse_file_info *fi)
 // FUSE).
 void *bb_init(struct fuse_conn_info *conn)
 {
-  //log_msg("\nbb_init()\n");
+  int sockfd;
+  struct sockaddr_in serv_addr;
+  log_msg("\nbb_init()\n");
     
   log_conn(conn);
   log_fuse_context(fuse_get_context());
+
+  pthread_mutex_lock(&mutex_sock);
+  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);
+
+  for (int i=0; i < NUM_THREADS; i++)
+  {  
+    if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+      printf("Init : can’t open stream socket\n");
+      return NULL;
+    }
+    if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+      printf("Init : can’t connect to server of %d socket\n", i);
+      return NULL;
+    }
+   
+    sckbsk[i].sfd = sockfd;
+    sckbsk[i].available = true;
+  }
+
+  pthread_mutex_unlock(&mutex_sock);
   
   return BB_DATA;
 }
@@ -1938,7 +2011,7 @@ void *bb_init(struct fuse_conn_info *conn)
  */
 void bb_destroy(void *userdata)
 {
-    //log_msg("\nbb_destroy(userdata=0x%08x)\n", userdata);
+    log_msg("\nbb_destroy(userdata=0x%08x)\n", userdata);
 }
 
 /**
@@ -1959,27 +2032,28 @@ int bb_access(const char *path, int mask)
   
   int sockfd;
   //int i;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::access obj_send, obj_recv;
 
-  //log_msg("\nbb_access(path=\"%s\", mask=0%o)\n", path, mask);
+  log_msg("\nbb_access(path=\"%s\", mask=0%o)\n", path, mask);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  while ( (sockfd = find_available_socket()) <= 0);
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Access : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Access : can’t connect to server \n");
     return -1;
-  }
+  }*/
   /*i = 0;
   while (1) {
     if (sckbsk[i].available) {
@@ -2027,7 +2101,8 @@ int bb_access(const char *path, int mask)
     return -1;
   }
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
   //sckbsk[i].available = true;
   pthread_mutex_unlock(&mutex_sock);
   
@@ -2040,7 +2115,7 @@ int bb_access(const char *path, int mask)
     return -1;
 
   /*
-  //log_msg("\nbb_access(path=\"%s\", mask=0%o)\n", path, mask);
+  log_msg("\nbb_access(path=\"%s\", mask=0%o)\n", path, mask);
   bb_fullpath(fpath, path);
     
   retstat = access(fpath, mask);
@@ -2083,7 +2158,7 @@ int bb_ftruncate(const char *path, off_t offset, struct fuse_file_info *fi)
 {
   int retstat = 0;
     
-  //log_msg("\nbb_ftruncate(path=\"%s\", offset=%lld, fi=0x%08x)\n", path, offset, fi);
+  log_msg("\nbb_ftruncate(path=\"%s\", offset=%lld, fi=0x%08x)\n", path, offset, fi);
   //log_fi(fi);
     
   retstat = ftruncate(fi->fh, offset);
@@ -2110,32 +2185,33 @@ int bb_fgetattr(const char *path, struct stat *statbuf, struct fuse_file_info *f
   int retstat = 0;
 
   int sockfd;
-  struct sockaddr_in serv_addr;
+  //struct sockaddr_in serv_addr;
   char buff[BLOCK_SIZE], recv_buf[BLOCK_SIZE] = {0,};
   string str_send, str_recv;
   FormatTransfer::fgetattr obj_send, obj_recv;
 
-  //log_msg("\nbb_fgetattr(path=\"%s\", statbuf=0x%08x, fi=0x%08x)\n", path, statbuf, fi);
+  log_msg("\nbb_fgetattr(path=\"%s\", statbuf=0x%08x, fi=0x%08x)\n", path, statbuf, fi);
   //log_fi(fi);
 
   if (!strcmp(path, "/"))
     return bb_getattr(path, statbuf);
 
-  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
 
   pthread_mutex_lock(&mutex_sock);
+  while ( (sockfd = find_available_socket()) <= 0);
 
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Fgetattr : can’t open stream socket\n");
     return -1;
   }
   if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
     printf("Fgetattr : can’t connect to server \n");
     return -1;
-  }
+  }*/
 
   /////// Send getattr request to server.
   if (::write(sockfd, "fgetattr", 8) < 8) {
@@ -2199,7 +2275,8 @@ int bb_fgetattr(const char *path, struct stat *statbuf, struct fuse_file_info *f
   else
     retstat = -1;
 
-  ::close(sockfd);
+  //::close(sockfd);
+  mark_used_socket(sockfd);
 
   pthread_mutex_unlock(&mutex_sock);
   return retstat;
@@ -2275,8 +2352,6 @@ int main(int argc, char *argv[])
 {
   int fuse_stat;
   struct bb_state *bb_data;
-  //int sockfd;
-  struct sockaddr_in serv_addr;
 
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
@@ -2359,12 +2434,12 @@ int main(int argc, char *argv[])
   bb_oper.removexattr = bb_removexattr;
 #endif
 
-  //pthread_mutex_lock(&temp);
-  /*::memset((char *) &serv_addr, 0, sizeof(serv_addr));
+  /*pthread_mutex_lock(&temp);
+  ::memset((char *) &serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = inet_addr(SERV_HOST_ADDR);
-  serv_addr.sin_port = htons(SERV_TCP_PORT);
-  if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+  serv_addr.sin_port = htons(SERV_TCP_PORT);*/
+  /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
     printf("Main : can’t open stream socket\n");
     return NULL;
   }
@@ -2374,21 +2449,21 @@ int main(int argc, char *argv[])
     return NULL;
   }*/
 
-  /*for (int i=0; i < NUM_THREADS; i++)
+  for (int i=0; i < NUM_THREADS; i++)
   {  
-    if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+    /*if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
       printf("Init : can’t open stream socket\n");
       return NULL;
     }
     if (::connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
       printf("Init : can’t connect to server of %d socket\n", i);
       return NULL;
-    }
+    }*/
    
-    sckbsk[i].sfd = sockfd;
-    sckbsk[i].available = true;
+    sckbsk[i].sfd = -1;
+    sckbsk[i].available = false;
   }
-  pthread_mutex_unlock(&temp);*/
+  //pthread_mutex_unlock(&temp);
 
   // turn over control to fuse
   fprintf(stderr, "about to call fuse_main\n");
